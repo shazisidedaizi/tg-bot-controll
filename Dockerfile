@@ -1,21 +1,30 @@
-FROM python:3.11-slim
-WORKDIR /app
-COPY main.py .
-RUN pip install flask requests
+name: Build and Push Docker Image
 
-# 声明构建参数（来自 build.yml）
-ARG TG_BOT_TOKEN
-ARG GITHUB_TOKEN
-ARG ADMIN_ID
-ARG WEBHOOK_URL
-ARG REPO_CONFIG
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
 
-# 在镜像内部定义环境变量
-ENV TG_BOT_TOKEN=$TG_BOT_TOKEN
-ENV GITHUB_TOKEN=$GITHUB_TOKEN
-ENV ADMIN_ID=$ADMIN_ID
-ENV WEBHOOK_URL=$WEBHOOK_URL
-ENV REPO_CONFIG=$REPO_CONFIG
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-EXPOSE 8000
-CMD ["python", "main.py"]
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/tg-bot-controller:latest
