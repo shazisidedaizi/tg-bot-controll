@@ -1,4 +1,4 @@
-import os
+import os 
 import requests
 from flask import Flask, request
 
@@ -46,7 +46,6 @@ print("🚀 =====================")
 # 📤 发送消息函数
 # ===========================================
 def send_message(chat_id, text, reply_markup=None):
-    """发送消息到 Telegram"""
     try:
         data = {
             "chat_id": chat_id,
@@ -55,33 +54,60 @@ def send_message(chat_id, text, reply_markup=None):
         }
         if reply_markup:
             data["reply_markup"] = reply_markup
-        response = requests.post(
-            f"{API_URL}/sendMessage",
-            json=data,
-            timeout=10
-        )
+        response = requests.post(f"{API_URL}/sendMessage", json=data, timeout=10)
         print(f"📤 发送消息状态: {response.status_code}")
     except Exception as e:
         print(f"❌ 发送消息失败: {e}")
 
 # ===========================================
+# 🔍 获取仓库默认分支
+# ===========================================
+def get_default_branch(repo):
+    try:
+        url = f"https://api.github.com/repos/{repo}"
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "tg-bot-controller"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            return response.json().get("default_branch", "main")
+        print(f"⚠️ 获取默认分支失败: {response.status_code}")
+        return "main"
+    except Exception as e:
+        print(f"⚠️ 获取默认分支异常: {e}")
+        return "main"
+
+# ===========================================
 # 🎯 获取 Workflow 列表
 # ===========================================
 def get_workflows(repo):
-    """获取 GitHub 仓库的 workflows"""
     try:
         url = f"https://api.github.com/repos/{repo}/actions/workflows"
         headers = {
             "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github.v3+json",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "tg-bot-controller"
         }
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            workflows = [wf["path"].split("/")[-1].replace(".yml", "").replace(".yaml", "") 
-                        for wf in data.get("workflows", [])]
-            return [wf for wf in workflows if wf]  # 过滤空值
-        return []
+            workflows = []
+            for wf in data.get("workflows", []):
+                filename = wf["path"].split("/")[-1]
+                wf_id = wf.get("id")
+                wf_name = wf.get("name", filename)
+                if filename:
+                    workflows.append({
+                        "filename": filename,
+                        "id": wf_id,
+                        "name": wf_name
+                    })
+            return workflows
+        else:
+            print(f"❌ 获取 workflows 失败: {response.status_code} {response.text}")
+            return []
     except Exception as e:
         print(f"❌ 获取 workflows 失败: {e}")
         return []
@@ -89,36 +115,38 @@ def get_workflows(repo):
 # ===========================================
 # ⚡ 触发 GitHub Workflow
 # ===========================================
-def trigger_workflow(chat_id, repo, workflow):
-    """触发 GitHub Actions workflow"""
+def trigger_workflow(chat_id, repo, workflow_filename):
     try:
-        url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+        if not (workflow_filename.endswith(".yml") or workflow_filename.endswith(".yaml")):
+            workflow_filename += ".yml"
+
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_filename}/dispatches"
         headers = {
             "Authorization": f"token {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json",
+            "User-Agent": "tg-bot-controller"
         }
-        data = {"ref": "main"}
-        
+
+        ref = get_default_branch(repo)
+        data = {"ref": ref}
+
         response = requests.post(url, headers=headers, json=data, timeout=10)
-        
         if response.status_code == 204:
-            send_message(chat_id, f"✅ <b>触发成功！</b>\n📦 <code>{repo}/{workflow}</code>")
+            send_message(chat_id, f"✅ <b>触发成功！</b>\n📦 <code>{repo}/{workflow_filename}</code>\n🌿 分支: <code>{ref}</code>")
         else:
-            send_message(chat_id, 
-                f"⚠️ <b>触发失败</b>\n"
-                f"📦 <code>{repo}/{workflow}</code>\n"
-                f"❌ 状态码: <code>{response.status_code}</code>")
-            print(f"触发失败详情: {response.text}")
+            error_text = response.text[:300] if response.text else "无错误信息"
+            send_message(chat_id,
+                         f"⚠️ <b>触发失败</b>\n📦 <code>{repo}/{workflow_filename}</code>\n🌿 分支: <code>{ref}</code>\n❌ 状态码: <code>{response.status_code}</code>\n📝 错误: <code>{error_text}</code>")
+            print(f"触发失败详情: {response.status_code} {response.text}")
     except Exception as e:
-        send_message(chat_id, f"💥 <b>触发异常</b>\n<code>{str(e)[:100]}...</code>")
+        send_message(chat_id, f"💥 <b>触发异常</b>\n<code>{str(e)[:200]}</code>")
         print(f"触发异常: {e}")
 
 # ===========================================
-# 🩺 健康检查路由（浏览器访问根路径）
+# 🩺 健康检查路由
 # ===========================================
 @app.route("/", methods=["GET"])
 def health_check():
-    """健康检查 - 浏览器访问 https://your-domain.zeabur.app/"""
     return (
         f"🤖 <b>Bot 运行正常！</b>\n\n"
         f"✅ Webhook 路由: <code>/{TG_BOT_TOKEN}</code>\n"
@@ -129,13 +157,11 @@ def health_check():
     )
 
 # ===========================================
-# 🌐 主 Webhook 路由（Telegram 回调）
+# 🌐 Telegram Webhook
 # ===========================================
 @app.route(f"/{TG_BOT_TOKEN}", methods=["POST"])
 def webhook():
-    """Telegram Webhook 主处理函数"""
     try:
-        # 安全解析 JSON
         data = request.get_json(force=False, silent=True)
         if not data:
             print("⚠️ 空请求体")
@@ -150,18 +176,13 @@ def webhook():
             user_id = query["from"]["id"]
             payload = query["data"]
 
-            # 权限检查
             if user_id != ADMIN_ID:
                 send_message(chat_id, "⛔ <b>无权限</b>")
                 return "ok", 200, {'Content-Type': 'text/plain'}
 
-            print(f"🔘 回调: {payload}")
-
             if payload.startswith("repo:"):
-                # 选择仓库 → 显示 workflows
                 repo_key = payload.split(":", 1)[1]
                 repo_full = REPO_CONFIG.get(repo_key)
-                
                 if not repo_full:
                     send_message(chat_id, "❌ 仓库配置错误")
                     return "ok", 200, {'Content-Type': 'text/plain'}
@@ -171,24 +192,20 @@ def webhook():
                     send_message(chat_id, f"❌ 仓库 <code>{repo_full}</code> 无 workflows")
                     return "ok", 200, {'Content-Type': 'text/plain'}
 
-                keyboard = [[{"text": f"🚀 {wf}", "callback_data": f"wf:{repo_key}|{wf}"}]
-                           for wf in workflows[:10]]  # 最多10个
-                
-                send_message(
-                    chat_id,
-                    f"📦 <b>选择 Workflow</b>\n\n"
-                    f"<code>{repo_full}</code>",
-                    {"inline_keyboard": keyboard}
-                )
+                keyboard = [[{"text": f"🚀 {wf['name']}",
+                              "callback_data": f"wf:{repo_key}|{wf['filename']}"}]
+                            for wf in workflows[:10]]
+
+                send_message(chat_id,
+                             f"📦 <b>选择 Workflow</b>\n\n<code>{repo_full}</code>",
+                             {"inline_keyboard": keyboard})
 
             elif payload.startswith("wf:"):
-                # 触发 workflow
                 _, repo_key_wf = payload.split(":", 1)
-                repo_key, workflow = repo_key_wf.split("|", 1)
+                repo_key, workflow_filename = repo_key_wf.split("|", 1)
                 repo_full = REPO_CONFIG.get(repo_key)
-                
                 if repo_full:
-                    trigger_workflow(chat_id, repo_full, workflow)
+                    trigger_workflow(chat_id, repo_full, workflow_filename)
 
             return "ok", 200, {'Content-Type': 'text/plain'}
 
@@ -199,34 +216,24 @@ def webhook():
             user_id = message["from"]["id"]
             text = message["text"].strip()
 
-            # 权限检查
             if user_id != ADMIN_ID:
                 send_message(chat_id, "⛔ <b>仅管理员可用</b>")
                 return "ok", 200, {'Content-Type': 'text/plain'}
 
-            if text == "/run" or text == "/start":
+            if text in ("/run", "/start"):
                 if not REPO_CONFIG:
-                    send_message(chat_id, 
-                        "❌ <b>未配置仓库</b>\n\n"
-                        "请在 Zeabur 环境变量设置 <code>REPO_CONFIG</code>\n"
-                        "格式: <code>myrepo:owner/repo,blog:owner/blog</code>")
+                    send_message(chat_id,
+                                 "❌ <b>未配置仓库</b>\n\n请在 Zeabur 环境变量设置 <code>REPO_CONFIG</code>\n格式: <code>myrepo:owner/repo,blog:owner/blog</code>")
                 else:
                     keyboard = [[{"text": f"📁 {alias}", "callback_data": f"repo:{alias}"}]
-                               for alias in REPO_CONFIG.keys()]
-                    
-                    send_message(
-                        chat_id,
-                        "🤖 <b>GitHub Actions 触发器</b>\n\n"
-                        "👇 请选择仓库",
-                        {"inline_keyboard": keyboard}
-                    )
+                                for alias in REPO_CONFIG.keys()]
+                    send_message(chat_id,
+                                 "🤖 <b>GitHub Actions 触发器</b>\n\n👇 请选择仓库",
+                                 {"inline_keyboard": keyboard})
 
             elif text == "/status":
                 send_message(chat_id,
-                    f"✅ <b>Bot 状态</b>\n\n"
-                    f"🔗 Webhook: <code>✅ 已连接</code>\n"
-                    f"📦 仓库: <code>{len(REPO_CONFIG)}</code>\n"
-                    f"👤 管理员: <code>{ADMIN_ID}</code>")
+                             f"✅ <b>Bot 状态</b>\n\n🔗 Webhook: <code>✅ 已连接</code>\n📦 仓库: <code>{len(REPO_CONFIG)}</code>\n👤 管理员: <code>{ADMIN_ID}</code>")
 
         return "ok", 200, {'Content-Type': 'text/plain'}
 
@@ -239,23 +246,18 @@ def webhook():
 # 🚀 应用启动
 # ===========================================
 if __name__ == "__main__":
-    # Zeabur 动态端口
     port = int(os.getenv("PORT", 8000))
-    
+
     print(f"🌐 启动 Webhook: {WEBHOOK_URL}/{TG_BOT_TOKEN}")
-    
+
     # 设置 Telegram Webhook
     try:
         webhook_url = f"{WEBHOOK_URL}/{TG_BOT_TOKEN}"
-        response = requests.get(
-            f"{API_URL}/setWebhook",
-            params={"url": webhook_url},
-            timeout=10
-        )
+        response = requests.get(f"{API_URL}/setWebhook", params={"url": webhook_url}, timeout=10)
         result = response.json()
         print(f"🔗 Webhook 设置: {result}")
     except Exception as e:
         print(f"⚠️ Webhook 设置失败: {e}")
-    
+
     print(f"🎯 Flask 启动: 0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
