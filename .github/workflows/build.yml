@@ -28,9 +28,3 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/tg-bot-controller:latest
-          build-args: |
-            TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }}
-            GITHUB_TOKEN=${{ secrets.PERSONAL_ACCESS_TOKEN }}
-            ADMIN_ID=${{ secrets.ADMIN_ID }}
-            WEBHOOK_URL=${{ secrets.WEBHOOK_URL }}
-            REPO_CONFIG=${{ secrets.REPO_CONFIG }}
