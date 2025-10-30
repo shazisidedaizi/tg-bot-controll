@@ -148,12 +148,9 @@ def trigger_workflow(chat_id, repo, workflow_filename):
 @app.route("/", methods=["GET"])
 def health_check():
     return (
-        f"🤖 <b>Bot 运行正常！</b>\n\n"
-        f"✅ Webhook 路由: <code>/{TG_BOT_TOKEN}</code>\n"
-        f"✅ 管理员 ID: <code>{ADMIN_ID}</code>\n"
-        f"✅ 仓库数量: <code>{len(REPO_CONFIG)}</code>\n"
-        f"📱 发送 <code>/run</code> 开始使用",
-        200, {'Content-Type': 'text/html; charset=utf-8'}
+        "🤖 Bot is running\n\n"
+        "✅ Status: OK",
+        200, {'Content-Type': 'text/plain; charset=utf-8'}
     )
 
 # ===========================================
